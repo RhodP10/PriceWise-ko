@@ -324,8 +324,8 @@
 
 	{#if activeTab === 'local'}
 		<div class="glass overflow-hidden rounded-3xl shadow-xl transition-all">
-			<div class="w-full overflow-hidden">
-				<table class="w-full table-fixed border-collapse text-left text-xs sm:text-sm">
+			<div class="overflow-x-auto">
+				<table class="w-full min-w-[1000px] table-fixed border-collapse text-left text-xs sm:text-sm">
 					<thead>
 						<tr class="border-b border-zinc-200/50 bg-zinc-50/50 text-[10px] font-bold uppercase tracking-wide text-zinc-500 sm:text-[11px] sm:tracking-wider">
 							<th class="w-[19%] px-2 py-2.5 sm:px-3 sm:py-3">Ingredient</th>
