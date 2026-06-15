@@ -82,6 +82,13 @@
 	<!-- Form Panel -->
 	<div class="flex w-full flex-col justify-center px-6 py-12 lg:w-1/2 lg:px-20">
 		<div class="mx-auto w-full max-w-sm">
+			<a href="/" class="group mb-6 inline-flex items-center gap-2 text-sm font-semibold text-zinc-500 hover:text-emerald-600 transition-colors">
+				<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="h-4 w-4 transition-transform group-hover:-translate-x-1">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+				</svg>
+				Back to homepage
+			</a>
+
 			<div class="lg:hidden mb-8 flex justify-center">
 				<img src="/icon.png" alt="PriceWise" class="h-16 w-16 object-contain" />
 			</div>
