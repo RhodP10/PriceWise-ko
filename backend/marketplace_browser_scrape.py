@@ -1,9 +1,10 @@
 """
 Marketplace product scraper with multi-layered extraction:
-1. Fast Direct HTTP extraction (OpenGraph, JSON-LD, microdata)
-2. Short URL & redirect resolution (ph.shp.ee, s.lazada.com.ph)
-3. Headless Playwright Chromium with anti-detection evasions & container sandbox flags
-4. Strict filtering of anti-bot challenge / captcha payloads
+1. URL query parameters / slug fast-path (instant price & title extraction)
+2. Fast Direct HTTP extraction (OpenGraph, JSON-LD, microdata)
+3. Short URL & redirect resolution (ph.shp.ee, s.lazada.com.ph)
+4. Headless Playwright Chromium with anti-detection evasions & container sandbox flags
+5. Strict filtering of anti-bot challenge / captcha payloads
 """
 
 from __future__ import annotations
@@ -54,6 +55,59 @@ def resolve_redirect_url(url: str, timeout_sec: float = 6.0) -> str:
             return resp.geturl()
     except Exception:
         return url
+
+
+# =============================================================================
+# Helper: URL Query Params Fast Extraction (e.g. Lazada search links with price)
+# =============================================================================
+
+def _extract_price_and_title_from_url(url: str) -> dict[str, Any] | None:
+    try:
+        u = urllib.parse.urlparse(url)
+        params = urllib.parse.parse_qs(u.query)
+        price: float | None = None
+        title: str = ""
+
+        # Check price param
+        if "price" in params:
+            try:
+                v = float(str(params["price"][0]).replace(",", ""))
+                if 1.0 <= v <= 5_000_000.0:
+                    price = v
+            except Exception:
+                pass
+
+        if price is None and "priceCompare" in params:
+            pc = urllib.parse.unquote(params["priceCompare"][0])
+            m = re.search(r"(?:displayPrice|originPrice|itemPrice)%3A(\d+)|(?:displayPrice|originPrice|itemPrice):(\d+)", pc, re.IGNORECASE)
+            if m:
+                raw_s = m.group(1) or m.group(2)
+                raw_v = float(raw_s)
+                if raw_v >= 1000:
+                    raw_v = raw_v / 100.0
+                if 1.0 <= raw_v <= 5_000_000.0:
+                    price = raw_v
+
+        # Check title / query in params or url slug
+        if "query" in params:
+            title = urllib.parse.unquote_plus(params["query"][0]).strip().title()
+        elif "clickTrackInfo" in params:
+            cti = urllib.parse.unquote(params["clickTrackInfo"][0])
+            m_q = re.search(r"query%3A([^;%]+)", cti, re.IGNORECASE)
+            if m_q:
+                title = urllib.parse.unquote_plus(m_q.group(1)).strip().title()
+
+        if not title:
+            path_slug = u.path.strip("/").split("/")[-1].replace(".html", "")
+            path_slug = re.sub(r"-i\d+.*$", "", path_slug).replace("-", " ").strip()
+            if path_slug and path_slug.lower() not in ("pdp", "product", "item"):
+                title = path_slug.title()
+
+        if price is not None and price > 0:
+            return {"title": title or "Marketplace Listing", "price_peso": float(price)}
+    except Exception:
+        pass
+    return None
 
 
 # =============================================================================
@@ -302,16 +356,11 @@ PLAYWRIGHT_LAUNCH_ARGS = [
 
 STEALTH_INIT_SCRIPT = """
 (() => {
-    // 1. Webdriver flag removal
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    
-    // 2. Mock chrome runtime
     window.chrome = window.chrome || {
         app: { isInstalled: false },
         runtime: { PlatformOs: { MAC: 'mac', WIN: 'win', ANDROID: 'android', CROS: 'cros', LINUX: 'linux', OPENBSD: 'openbsd' } },
     };
-
-    // 3. Realistic plugins & languages
     Object.defineProperty(navigator, 'languages', { get: () => ['en-PH', 'en-US', 'en'] });
     Object.defineProperty(navigator, 'plugins', {
         get: () => [
@@ -332,7 +381,15 @@ def scrape_shopee_sync(url: str) -> tuple[bool, str | None, str | None]:
     resolved_url = resolve_redirect_url(url)
     shop_id, item_id, origin = _parse_shopee_listing_ids(resolved_url)
 
-    # Step 2: Try fast direct HTTP extraction first (avoids browser startup)
+    # Step 2: Try URL params / query hints first
+    url_meta = _extract_price_and_title_from_url(resolved_url) or _extract_price_and_title_from_url(url)
+    if url_meta and url_meta.get("price_peso"):
+        synthetic = _synthetic_shopee_payload(
+            shop_id, item_id, url_meta.get("title") or "", url_meta["price_peso"]
+        )
+        return True, json.dumps(synthetic), None
+
+    # Step 3: Try fast direct HTTP extraction
     fast_meta = _try_fast_http_scrape(resolved_url)
     if fast_meta and fast_meta.get("price_peso"):
         synthetic = _synthetic_shopee_payload(
@@ -340,7 +397,7 @@ def scrape_shopee_sync(url: str) -> tuple[bool, str | None, str | None]:
         )
         return True, json.dumps(synthetic), None
 
-    # Step 3: Browser session with Playwright
+    # Step 4: Browser session with Playwright
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -515,7 +572,18 @@ def scrape_lazada_sync(url: str) -> tuple[bool, str | None, str | None]:
     if "lazada." not in urlparse(resolved_url).netloc.lower():
         return False, None, "URL does not look like a Lazada storefront link."
 
-    # Step 2: Try fast direct HTTP extraction first
+    # Step 2: Try URL parameters / search link hints first (e.g. price=138, displayPrice:13800)
+    url_meta = _extract_price_and_title_from_url(resolved_url) or _extract_price_and_title_from_url(url)
+    if url_meta and url_meta.get("price_peso"):
+        synthetic = {
+            "price": url_meta["price_peso"],
+            "title": url_meta.get("title") or "",
+            "_pricewise_source": "url_params_fallback",
+            "_pricewisePageUrl": resolved_url,
+        }
+        return True, json.dumps(synthetic), None
+
+    # Step 3: Try fast direct HTTP extraction
     fast_meta = _try_fast_http_scrape(resolved_url)
     if fast_meta and fast_meta.get("price_peso"):
         synthetic = {
@@ -526,7 +594,7 @@ def scrape_lazada_sync(url: str) -> tuple[bool, str | None, str | None]:
         }
         return True, json.dumps(synthetic), None
 
-    # Step 3: Browser session with Playwright
+    # Step 4: Browser session with Playwright
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
