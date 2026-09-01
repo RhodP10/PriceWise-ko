@@ -886,9 +886,8 @@
 	open={pendingRecipeDelete}
 	title="Delete this recipe?"
 	description={recipe
-		? `This removes “${recipe.name}” and every ingredient / other line in it. Type delete to confirm.`
+		? `Are you sure you want to delete “${recipe.name}”? This will remove all ingredient and other lines in it.`
 		: ''}
-	confirmPhrase="delete"
 	onClose={() => (pendingRecipeDelete = false)}
 	onConfirm={executeRecipeDelete}
 />
