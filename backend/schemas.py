@@ -43,8 +43,15 @@ class UserOut(BaseModel):
     id: int
     email: str
     created_at: datetime
+    is_admin: bool
 
     model_config = {"from_attributes": True}
+
+
+class AdminUserOut(UserOut):
+    recipe_count: int
+    ingredient_count: int
+    other_cost_count: int
 
 
 class PasswordChangeIn(BaseModel):

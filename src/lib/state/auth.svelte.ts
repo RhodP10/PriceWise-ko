@@ -1,6 +1,6 @@
 import { API_BASE } from '$lib/api/apiBase';
 
-type AuthUser = { id: number; email: string } | null;
+type AuthUser = { id: number; email: string; is_admin: boolean } | null;
 
 export const authState = $state({
 	token: '',

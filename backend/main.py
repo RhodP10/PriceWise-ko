@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from marketplace_browser_scrape import scrape_lazada_sync, scrape_shopee_sync
 from auth import create_access_token, hash_password, verify_password
 from database import Base, engine
-from deps import get_current_user, get_db
+from deps import get_admin_user, get_current_user, get_db
 from models import (
     Ingredient,
     MonthlyFinancialSnapshot,
@@ -26,6 +26,7 @@ from models import (
     UserWorkspace,
 )
 from schemas import (
+    AdminUserOut,
     IngredientCreateIn,
     IngredientOut,
     MonthlySnapshotCreateIn,
@@ -204,6 +205,48 @@ def change_password(
     current_user.password_hash = hash_password(payload.new_password)
     db.commit()
     return {"ok": True}
+@app.get("/admin/users", response_model=list[AdminUserOut])
+def get_admin_users(
+    db: Session = Depends(get_db), current_admin: User = Depends(get_admin_user)
+):
+    users = db.scalars(select(User).order_by(User.created_at.desc())).all()
+    out = []
+    for u in users:
+        recipe_count = db.scalar(select(func.count(Recipe.id)).where(Recipe.user_id == u.id))
+        ingredient_count = db.scalar(select(func.count(Ingredient.id)).where(Ingredient.user_id == u.id))
+        other_cost_count = db.scalar(select(func.count(OtherCost.id)).where(OtherCost.user_id == u.id))
+        
+        out.append(
+            AdminUserOut(
+                id=u.id,
+                email=u.email,
+                created_at=u.created_at,
+                is_admin=u.is_admin,
+                recipe_count=recipe_count or 0,
+                ingredient_count=ingredient_count or 0,
+                other_cost_count=other_cost_count or 0,
+            )
+        )
+    return out
+
+
+@app.delete("/admin/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_admin_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_admin_user),
+):
+    user_to_delete = db.get(User, user_id)
+    if not user_to_delete:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user_to_delete.id == current_admin.id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+        
+    db.delete(user_to_delete)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
 
 
 @app.get("/workspace")

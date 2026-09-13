@@ -27,15 +27,16 @@
 	/** Only hydrate from the server when the logged-in user id changes — not on every `fetchMe()` profile refresh (same id), which would overwrite in-memory stores before persist runs. */
 	let hydratedUserId = $state<number | null>(null);
 
-	const links = [
+	const links = $derived([
 		{ href: '/recipes', label: 'Recipes' },
 		{ href: '/Ingredients', label: 'Ingredients' },
 		{ href: '/Others', label: 'Others' },
 		{ href: '/Opex', label: 'OPEX' },
 		{ href: '/Summary', label: 'Summary' },
 		{ href: '/Statistics', label: 'Statistics' },
-		{ href: '/smart-pricing', label: 'Smart Pricing' }
-	];
+		{ href: '/smart-pricing', label: 'Smart Pricing' },
+        ...(authState.user?.is_admin ? [{ href: '/admin/users', label: 'Admin Panel' }] : [])
+	]);
 
 	const showAppHeader = $derived(
 		!['/', '/login', '/register'].includes($page.url.pathname)
