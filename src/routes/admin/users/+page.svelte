@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { type AdminUserDTO, fetchAdminUsers, deleteAdminUser } from '$lib/api/adminClient';
 	import TypeToConfirmDeleteModal from '$lib/components/TypeToConfirmDeleteModal.svelte';
 
@@ -13,13 +12,16 @@
 	let userToDelete = $state<AdminUserDTO | null>(null);
 	let deleting = $state(false);
 
+	let hasLoaded = $state(false);
+
 	async function loadUsers() {
 		try {
 			loading = true;
 			error = '';
 			const token = authState.token;
-			if (!token) throw new Error('Not authenticated');
+			if (!token) return;
 			users = await fetchAdminUsers(token);
+			hasLoaded = true;
 		} catch (e: any) {
 			error = e.message;
 		} finally {
@@ -27,8 +29,10 @@
 		}
 	}
 
-	onMount(() => {
-		void loadUsers();
+	$effect(() => {
+		if (authState.token && !hasLoaded) {
+			void loadUsers();
+		}
 	});
 
 	function askDelete(u: AdminUserDTO) {
