@@ -113,6 +113,16 @@ def _migrate_monthly_snapshots_allow_duplicates() -> None:
 
 _migrate_monthly_snapshots_allow_duplicates()
 
+def _migrate_add_is_admin_column() -> None:
+    """Safely add is_admin column to users table on startup."""
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT FALSE"))
+    except Exception:
+        # Expected to fail if column already exists
+        pass
+
+_migrate_add_is_admin_column()
 # Bearer tokens are sent via Authorization header (not cookies), so allow_origins=["*"]
 # avoids brittle CORS when Origin is localhost vs 127.0.0.1 vs LAN IP during dev.
 app.add_middleware(
