@@ -1,4 +1,4 @@
-import { mockIngredientMasters } from '$lib/data/mockIngredientMasters';
+
 import type {
 	ChannelMarketplace,
 	ChannelScrapeInfo,
@@ -12,7 +12,7 @@ import { mergeChannelLanded } from '$lib/utils/marketplaceJsonImport';
 import { computeUnitCost, toBaseQuantity } from '$lib/utils/baseUnitCost';
 
 export const ingredientCatalog = $state({
-	items: structuredClone(mockIngredientMasters) as IngredientMasterDTO[]
+	items: [] as IngredientMasterDTO[]
 });
 
 export function computeCatalogUnitCost(input: {
@@ -152,7 +152,7 @@ export function getMaster(id: string): IngredientMasterDTO | undefined {
 }
 
 export function resetIngredientCatalog(): void {
-	ingredientCatalog.items = structuredClone(mockIngredientMasters);
+	ingredientCatalog.items = [];
 }
 
 export function replaceIngredientCatalogItems(next: IngredientMasterDTO[]): void {
