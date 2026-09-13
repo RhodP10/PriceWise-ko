@@ -16,8 +16,10 @@
 	async function loadUsers() {
 		try {
 			loading = true;
-			if (!authState.token) throw new Error('Not authenticated');
-			users = await fetchAdminUsers(authState.token);
+			error = '';
+			const token = authState.token;
+			if (!token) throw new Error('Not authenticated');
+			users = await fetchAdminUsers(token);
 		} catch (e: any) {
 			error = e.message;
 		} finally {
@@ -36,13 +38,22 @@
 
 	async function confirmDelete() {
 		if (!userToDelete) return;
+		const token = authState.token;
+		if (!token) {
+			alert('Not authenticated. Please log in again.');
+			return;
+		}
 		try {
 			deleting = true;
-			if (!authState.token) throw new Error('Not authenticated');
-			await deleteAdminUser(authState.token, userToDelete.id);
+			await deleteAdminUser(token, userToDelete.id);
 			deleteModalOpen = false;
 			userToDelete = null;
-			await loadUsers();
+			// Reload the list after successful delete
+			try {
+				users = await fetchAdminUsers(token);
+			} catch {
+				// Silently ignore reload errors — the delete was successful
+			}
 		} catch (e: any) {
 			alert('Failed to delete user: ' + e.message);
 		} finally {
