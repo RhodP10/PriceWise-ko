@@ -11,20 +11,35 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    email: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True, index=True)
+    username: Mapped[Optional[str]] = mapped_column(String(100), unique=True, nullable=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    role: Mapped[str] = mapped_column(String(50), default="admin", server_default="admin", nullable=False)  # super_admin | admin | employee
     is_admin: Mapped[bool] = mapped_column(default=False, server_default="false", nullable=False)
+    admin_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
 
-    recipes = relationship("Recipe", back_populates="user", cascade="all, delete-orphan")
-    ingredients = relationship("Ingredient", back_populates="user", cascade="all, delete-orphan")
-    other_costs = relationship("OtherCost", back_populates="user", cascade="all, delete-orphan")
-    opex_items = relationship("Opex", back_populates="user", cascade="all, delete-orphan")
+    admin = relationship("User", remote_side=[id], foreign_keys=[admin_id], back_populates="employees")
+    employees = relationship("User", foreign_keys=[admin_id], back_populates="admin", cascade="all, delete-orphan")
+
+    @property
+    def data_owner_id(self) -> int:
+        """For employees, returns the admin ID who owns the workspace data. Otherwise, returns their own ID."""
+        if self.role == "employee" and self.admin_id is not None:
+            return self.admin_id
+        return self.id
+
+    recipes = relationship("Recipe", back_populates="user", cascade="all, delete-orphan", foreign_keys="Recipe.user_id")
+    ingredients = relationship("Ingredient", back_populates="user", cascade="all, delete-orphan", foreign_keys="Ingredient.user_id")
+    other_costs = relationship("OtherCost", back_populates="user", cascade="all, delete-orphan", foreign_keys="OtherCost.user_id")
+    opex_items = relationship("Opex", back_populates="user", cascade="all, delete-orphan", foreign_keys="Opex.user_id")
     monthly_snapshots = relationship(
-        "MonthlyFinancialSnapshot", back_populates="user", cascade="all, delete-orphan"
+        "MonthlyFinancialSnapshot", back_populates="user", cascade="all, delete-orphan", foreign_keys="MonthlyFinancialSnapshot.user_id"
     )
     workspace = relationship(
-        "UserWorkspace", back_populates="user", uselist=False, cascade="all, delete-orphan"
+        "UserWorkspace", back_populates="user", uselist=False, cascade="all, delete-orphan", foreign_keys="UserWorkspace.user_id"
     )
 
 

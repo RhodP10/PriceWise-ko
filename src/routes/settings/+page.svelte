@@ -15,8 +15,9 @@
 		hydrateUserPrefs();
 	});
 
-	function initialsFromEmail(email: string): string {
-		const local = email.split('@')[0]?.trim() ?? '?';
+	function initialsFromEmail(email: string | null | undefined): string {
+		const ident = authState.user?.username || email || '?';
+		const local = ident.split('@')[0]?.trim() ?? '?';
 		const parts = local.split(/[.\s_-]+/).filter(Boolean);
 		if (parts.length >= 2) return (parts[0]![0] + parts[1]![0]).toUpperCase();
 		return local.slice(0, 2).toUpperCase() || '?';
@@ -102,12 +103,38 @@
 					</div>
 					<dl class="space-y-2 text-sm">
 						<div>
-							<dt class="text-xs font-medium text-zinc-500">Email</dt>
-							<dd class="mt-0.5 font-semibold text-zinc-900">{authState.user?.email ?? '—'}</dd>
+							<dt class="text-xs font-medium text-zinc-500">Role</dt>
+							<dd class="mt-0.5">
+								{#if authState.user?.role === 'super_admin' || authState.user?.is_admin}
+									<span class="rounded-full bg-orange-500/20 px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-orange-700 dark:text-orange-400">
+										Super Admin
+									</span>
+								{:else if authState.user?.role === 'employee'}
+									<span class="rounded-full bg-sky-500/20 px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-sky-700 dark:text-sky-400">
+										Employee (Shared Data)
+									</span>
+								{:else}
+									<span class="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+										Admin (Store Owner)
+									</span>
+								{/if}
+							</dd>
 						</div>
+						{#if authState.user?.username}
+							<div>
+								<dt class="text-xs font-medium text-zinc-500">Username</dt>
+								<dd class="mt-0.5 font-semibold text-zinc-900 dark:text-white">@{authState.user.username}</dd>
+							</div>
+						{/if}
+						{#if authState.user?.email && !authState.user.email.endsWith('@employee.local')}
+							<div>
+								<dt class="text-xs font-medium text-zinc-500">Email</dt>
+								<dd class="mt-0.5 font-semibold text-zinc-900 dark:text-white">{authState.user.email}</dd>
+							</div>
+						{/if}
 						<div>
 							<dt class="text-xs font-medium text-zinc-500">User ID</dt>
-							<dd class="mt-0.5 tabular-nums text-zinc-700">{authState.user?.id ?? '—'}</dd>
+							<dd class="mt-0.5 tabular-nums text-zinc-700 dark:text-zinc-300">#{authState.user?.id ?? '—'}</dd>
 						</div>
 					</dl>
 					<button

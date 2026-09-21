@@ -3,7 +3,7 @@ from database import SessionLocal
 from models import User
 from sqlalchemy import select
 
-def make_admin(email: str):
+def make_super_admin(email: str):
     db = SessionLocal()
     try:
         user = db.scalar(select(User).where(User.email == email.lower().strip()))
@@ -12,8 +12,9 @@ def make_admin(email: str):
             return
         
         user.is_admin = True
+        user.role = "super_admin"
         db.commit()
-        print(f"Success: User '{email}' is now an admin.")
+        print(f"Success: User '{email}' is now a Super Admin.")
     except Exception as e:
         print(f"An error occurred: {e}")
     finally:
@@ -24,4 +25,4 @@ if __name__ == "__main__":
         print("Usage: python make_admin.py <user_email>")
         sys.exit(1)
     
-    make_admin(sys.argv[1])
+    make_super_admin(sys.argv[1])
