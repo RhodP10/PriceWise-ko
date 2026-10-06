@@ -1,15 +1,6 @@
 import { API_BASE } from '$lib/api/apiBase';
 
-export type UserRole = 'super_admin' | 'admin' | 'employee';
-
-export type AuthUser = {
-	id: number;
-	email: string | null;
-	username: string | null;
-	role: UserRole;
-	is_admin: boolean;
-	admin_id: number | null;
-} | null;
+type AuthUser = { id: number; email: string } | null;
 
 export const authState = $state({
 	token: '',
@@ -49,3 +40,4 @@ export async function fetchMe(): Promise<void> {
 export function isAuthenticated(): boolean {
 	return Boolean(authState.token && authState.user);
 }
+

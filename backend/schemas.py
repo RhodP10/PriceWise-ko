@@ -41,41 +41,8 @@ class UserRegisterIn(BaseModel):
 
 class UserOut(BaseModel):
     id: int
-    email: str | None = None
-    username: str | None = None
-    role: str = "admin"
+    email: str
     created_at: datetime
-    is_admin: bool = False
-    admin_id: int | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class AdminUserOut(UserOut):
-    recipe_count: int
-    ingredient_count: int
-    other_cost_count: int
-
-
-class EmployeeCreateIn(BaseModel):
-    username: str = Field(min_length=3, max_length=50)
-    password: str = Field(min_length=6)
-
-    @field_validator("username")
-    @classmethod
-    def validate_username(cls, v: str) -> str:
-        clean = v.strip().lower()
-        if not re.match(r"^[a-zA-Z0-9_\.\-]+$", clean):
-            raise ValueError("Username can only contain letters, numbers, periods, dashes, and underscores")
-        return clean
-
-
-class EmployeeOut(BaseModel):
-    id: int
-    username: str
-    created_at: datetime
-    role: str = "employee"
-    admin_id: int
 
     model_config = {"from_attributes": True}
 

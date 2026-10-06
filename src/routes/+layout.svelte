@@ -27,20 +27,15 @@
 	/** Only hydrate from the server when the logged-in user id changes — not on every `fetchMe()` profile refresh (same id), which would overwrite in-memory stores before persist runs. */
 	let hydratedUserId = $state<number | null>(null);
 
-	const links = $derived([
+	const links = [
 		{ href: '/recipes', label: 'Recipes' },
 		{ href: '/Ingredients', label: 'Ingredients' },
 		{ href: '/Others', label: 'Others' },
 		{ href: '/Opex', label: 'OPEX' },
 		{ href: '/Summary', label: 'Summary' },
 		{ href: '/Statistics', label: 'Statistics' },
-		{ href: '/smart-pricing', label: 'Smart Pricing' },
-		...(authState.user?.role === 'super_admin' || authState.user?.is_admin
-			? [{ href: '/super-admin/users', label: 'Super Admin Panel' }]
-			: authState.user?.role === 'admin'
-				? [{ href: '/admin/panel', label: 'Admin Panel' }]
-				: [])
-	]);
+		{ href: '/smart-pricing', label: 'Smart Pricing' }
+	];
 
 	const showAppHeader = $derived(
 		!['/', '/login', '/register'].includes($page.url.pathname)
@@ -159,27 +154,9 @@
 				</nav>
 				<div class="flex flex-wrap items-center justify-end gap-2">
 					{#if authState.user}
-						<div class="flex items-center gap-1.5">
-							{#if authState.user.role === 'super_admin' || authState.user.is_admin}
-								<span class="rounded-full bg-orange-500/20 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-orange-700 dark:text-orange-300">
-									Super Admin
-								</span>
-							{:else if authState.user.role === 'employee'}
-								<span class="rounded-full bg-sky-500/20 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-sky-700 dark:text-sky-300">
-									Employee
-								</span>
-							{:else}
-								<span class="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-									Admin
-								</span>
-							{/if}
-							<span
-								class="max-w-[130px] truncate text-xs font-semibold text-emerald-900 dark:text-emerald-100 sm:max-w-[180px]"
-								title={authState.user.username ? `@${authState.user.username}` : (authState.user.email ?? '')}
-							>
-								{authState.user.username ? `@${authState.user.username}` : authState.user.email}
-							</span>
-						</div>
+						<span class="max-w-[140px] truncate text-xs text-emerald-900 sm:max-w-[220px]" title={authState.user.email}
+							>{authState.user.email}</span
+						>
 						<a
 							href="/settings"
 							class={[

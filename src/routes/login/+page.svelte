@@ -98,14 +98,14 @@
 
 			<form onsubmit={submit} class="mt-10 space-y-6">
 				<div>
-					<label for="email" class="block text-sm font-semibold text-zinc-900">Email or Username</label>
+					<label for="email" class="block text-sm font-semibold text-zinc-900">Email address</label>
 					<div class="mt-2">
 						<input
-							type="text"
+							type="email"
 							id="email"
 							bind:value={email}
 							required
-							placeholder="you@gmail.com or username"
+							placeholder="you@example.com"
 							class="block w-full rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm transition focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-emerald-500/10"
 						/>
 					</div>

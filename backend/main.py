@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from marketplace_browser_scrape import scrape_lazada_sync, scrape_shopee_sync
 from auth import create_access_token, hash_password, verify_password
 from database import Base, engine
-from deps import get_admin_user, get_current_user, get_db, get_super_admin_user
+from deps import get_current_user, get_db
 from models import (
     Ingredient,
     MonthlyFinancialSnapshot,
@@ -26,9 +26,6 @@ from models import (
     UserWorkspace,
 )
 from schemas import (
-    AdminUserOut,
-    EmployeeCreateIn,
-    EmployeeOut,
     IngredientCreateIn,
     IngredientOut,
     MonthlySnapshotCreateIn,
@@ -54,7 +51,7 @@ from schemas import (
 )
 from ml.smart_pricing import analyze_smart_pricing
 
-app = FastAPI(title="PriceWise Backend", version="2.1.0")
+app = FastAPI(title="PriceWise Backend", version="2.0.0")
 Base.metadata.create_all(bind=engine)
 
 
@@ -115,45 +112,8 @@ def _migrate_monthly_snapshots_allow_duplicates() -> None:
 
 _migrate_monthly_snapshots_allow_duplicates()
 
-
-def _migrate_roles_and_employees() -> None:
-    """Safely migrate users table to support roles (super_admin, admin, employee), username, and admin_id."""
-    try:
-        with engine.begin() as conn:
-            dialect = conn.dialect.name
-            if dialect == "postgresql":
-                conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE"))
-                # Allow email to be null for employee accounts
-                try:
-                    conn.execute(text("ALTER TABLE users ALTER COLUMN email DROP NOT NULL"))
-                except Exception:
-                    pass
-                conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(100) UNIQUE"))
-                conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'admin' NOT NULL"))
-                conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_id INTEGER REFERENCES users(id) ON DELETE CASCADE"))
-                # Existing admin users become super_admin
-                conn.execute(text("UPDATE users SET role = 'super_admin' WHERE is_admin = TRUE OR email = 'admin@gmail.com'"))
-                # Any other accounts default to admin
-                conn.execute(text("UPDATE users SET role = 'admin' WHERE role IS NULL OR (role != 'super_admin' AND role != 'employee')"))
-            elif dialect == "sqlite":
-                cols = [row[1] for row in conn.execute(text("PRAGMA table_info(users)")).fetchall()]
-                if "is_admin" not in cols:
-                    conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT 0"))
-                if "username" not in cols:
-                    conn.execute(text("ALTER TABLE users ADD COLUMN username VARCHAR(100)"))
-                if "role" not in cols:
-                    conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR(50) DEFAULT 'admin'"))
-                if "admin_id" not in cols:
-                    conn.execute(text("ALTER TABLE users ADD COLUMN admin_id INTEGER REFERENCES users(id)"))
-                conn.execute(text("UPDATE users SET role = 'super_admin' WHERE is_admin = 1 OR email = 'admin@gmail.com'"))
-                conn.execute(text("UPDATE users SET role = 'admin' WHERE role IS NULL OR (role != 'super_admin' AND role != 'employee')"))
-    except Exception as e:
-        print(f"Role migration notice: {e}")
-
-
-_migrate_roles_and_employees()
-
-# Bearer tokens are sent via Authorization header (not cookies)
+# Bearer tokens are sent via Authorization header (not cookies), so allow_origins=["*"]
+# avoids brittle CORS when Origin is localhost vs 127.0.0.1 vs LAN IP during dev.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -199,6 +159,7 @@ async def marketplace_scrape(body: MarketplaceScrapeIn):
             return MarketplaceScrapeOut(ok=True, body_json=text, error=None)
         return MarketplaceScrapeOut(ok=False, body_json=None, error=err or "Scrape failed")
     except Exception as exc:
+        # Always JSON — never plain-text/HTML 500 (frontend expects JSON)
         return MarketplaceScrapeOut(
             ok=False,
             body_json=None,
@@ -208,18 +169,10 @@ async def marketplace_scrape(body: MarketplaceScrapeIn):
 
 @app.post("/auth/register", response_model=UserOut)
 def register(payload: UserRegisterIn, db: Session = Depends(get_db)):
-    clean_email = payload.email.lower().strip()
-    existing = db.scalar(select(User).where(User.email == clean_email))
+    existing = db.scalar(select(User).where(User.email == payload.email.lower().strip()))
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
-    
-    # Regular users creating an account become Admin
-    user = User(
-        email=clean_email,
-        password_hash=hash_password(payload.password),
-        role="admin",
-        is_admin=False,
-    )
+    user = User(email=payload.email.lower().strip(), password_hash=hash_password(payload.password))
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -228,13 +181,7 @@ def register(payload: UserRegisterIn, db: Session = Depends(get_db)):
 
 @app.post("/auth/login", response_model=TokenOut)
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    identifier = form_data.username.lower().strip()
-    # Support login with either email or username
-    user = db.scalar(
-        select(User).where(
-            (func.lower(User.email) == identifier) | (func.lower(User.username) == identifier)
-        )
-    )
+    user = db.scalar(select(User).where(User.email == form_data.username.lower().strip()))
     if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     token = create_access_token(str(user.id))
@@ -259,135 +206,9 @@ def change_password(
     return {"ok": True}
 
 
-# --- Super Admin Account Management ---
-
-@app.get("/admin/users", response_model=list[AdminUserOut])
-def get_super_admin_users(
-    db: Session = Depends(get_db), current_super_admin: User = Depends(get_super_admin_user)
-):
-    users = db.scalars(select(User).order_by(User.created_at.desc())).all()
-    out = []
-    for u in users:
-        recipe_count = db.scalar(select(func.count(Recipe.id)).where(Recipe.user_id == u.id))
-        ingredient_count = db.scalar(select(func.count(Ingredient.id)).where(Ingredient.user_id == u.id))
-        other_cost_count = db.scalar(select(func.count(OtherCost.id)).where(OtherCost.user_id == u.id))
-        
-        display_email = u.email or (f"@{u.username}" if u.username else f"user_{u.id}")
-        if display_email.endswith("@employee.local"):
-            display_email = f"@{u.username} (Employee)"
-
-        out.append(
-            AdminUserOut(
-                id=u.id,
-                email=display_email,
-                username=u.username,
-                role=u.role,
-                created_at=u.created_at,
-                is_admin=(u.role == "super_admin" or u.is_admin),
-                admin_id=u.admin_id,
-                recipe_count=recipe_count or 0,
-                ingredient_count=ingredient_count or 0,
-                other_cost_count=other_cost_count or 0,
-            )
-        )
-    return out
-
-
-@app.delete("/admin/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_super_admin_user(
-    user_id: int,
-    db: Session = Depends(get_db),
-    current_super_admin: User = Depends(get_super_admin_user),
-):
-    user_to_delete = db.get(User, user_id)
-    if not user_to_delete:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    if user_to_delete.id == current_super_admin.id:
-        raise HTTPException(status_code=400, detail="Cannot delete your own account")
-        
-    db.delete(user_to_delete)
-    db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# --- Admin Employee Management ---
-
-@app.get("/admin/employees", response_model=list[EmployeeOut])
-def list_employees(
-    db: Session = Depends(get_db),
-    current_admin: User = Depends(get_admin_user),
-):
-    """Fetch all employee accounts created by the logged-in admin."""
-    employees = db.scalars(
-        select(User)
-        .where(User.admin_id == current_admin.id)
-        .order_by(User.created_at.desc())
-    ).all()
-    return employees
-
-
-@app.post("/admin/employees", response_model=EmployeeOut)
-def create_employee(
-    payload: EmployeeCreateIn,
-    db: Session = Depends(get_db),
-    current_admin: User = Depends(get_admin_user),
-):
-    """Create an employee account with username and password only."""
-    clean_username = payload.username.lower().strip()
-
-    # Check if username is taken
-    existing = db.scalar(select(User).where(func.lower(User.username) == clean_username))
-    if existing:
-        raise HTTPException(status_code=400, detail="Username is already taken")
-    
-    # Check if username matches an email
-    existing_email = db.scalar(select(User).where(func.lower(User.email) == clean_username))
-    if existing_email:
-        raise HTTPException(status_code=400, detail="Username is already taken")
-
-    fallback_email = f"{clean_username}@employee.local"
-
-    employee = User(
-        username=clean_username,
-        email=fallback_email,
-        password_hash=hash_password(payload.password),
-        role="employee",
-        is_admin=False,
-        admin_id=current_admin.id,
-    )
-    db.add(employee)
-    db.commit()
-    db.refresh(employee)
-    return employee
-
-
-@app.delete("/admin/employees/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_employee(
-    employee_id: int,
-    db: Session = Depends(get_db),
-    current_admin: User = Depends(get_admin_user),
-):
-    """Delete an employee account created by this admin."""
-    employee = db.get(User, employee_id)
-    if not employee:
-        raise HTTPException(status_code=404, detail="Employee not found")
-    
-    # Only allow deleting employees created by this admin (unless super_admin)
-    if employee.admin_id != current_admin.id and current_admin.role != "super_admin":
-        raise HTTPException(status_code=403, detail="You do not have permission to delete this employee")
-    
-    db.delete(employee)
-    db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# --- Shared Data Endpoints (Scoped to current_user.data_owner_id) ---
-
 @app.get("/workspace")
 def get_workspace(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    owner_id = current_user.data_owner_id
-    row = db.get(UserWorkspace, owner_id)
+    row = db.get(UserWorkspace, current_user.id)
     base = WorkspaceState().model_dump(mode="json", by_alias=True)
     if not row or not row.payload:
         return base
@@ -405,15 +226,14 @@ def put_workspace(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    owner_id = current_user.data_owner_id
     data = body.model_dump(mode="json", by_alias=True)
     now = datetime.utcnow()
-    row = db.get(UserWorkspace, owner_id)
+    row = db.get(UserWorkspace, current_user.id)
     if row:
         row.payload = data
         row.updated_at = now
     else:
-        row = UserWorkspace(user_id=owner_id, payload=data, updated_at=now)
+        row = UserWorkspace(user_id=current_user.id, payload=data, updated_at=now)
         db.add(row)
     db.commit()
     return data
@@ -425,16 +245,15 @@ def post_smart_pricing_analyze(
     current_user: User = Depends(get_current_user),
 ):
     """ML-style pricing and cost intelligence from catalog history + recipe rows (client-built payload)."""
-    _ = current_user.data_owner_id
+    _ = current_user.id
     return analyze_smart_pricing(body)
 
 
 @app.get("/monthly-summaries", response_model=list[MonthlySnapshotOut])
 def list_monthly_summaries(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    owner_id = current_user.data_owner_id
     rows = db.scalars(
         select(MonthlyFinancialSnapshot)
-        .where(MonthlyFinancialSnapshot.user_id == owner_id)
+        .where(MonthlyFinancialSnapshot.user_id == current_user.id)
         .order_by(
             MonthlyFinancialSnapshot.year_month.asc(),
             MonthlyFinancialSnapshot.generated_at.asc(),
@@ -449,14 +268,13 @@ def create_monthly_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    owner_id = current_user.data_owner_id
     breakdown_dump = None
     if payload.recipe_breakdown is not None:
         breakdown_dump = [x.model_dump() for x in payload.recipe_breakdown]
 
     now = datetime.utcnow()
     row = MonthlyFinancialSnapshot(
-        user_id=owner_id,
+        user_id=current_user.id,
         year_month=payload.year_month,
         total_opex=payload.total_opex,
         total_revenue=payload.total_revenue,
@@ -479,11 +297,10 @@ def delete_monthly_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    owner_id = current_user.data_owner_id
     row = db.scalar(
         select(MonthlyFinancialSnapshot).where(
             MonthlyFinancialSnapshot.id == snapshot_id,
-            MonthlyFinancialSnapshot.user_id == owner_id,
+            MonthlyFinancialSnapshot.user_id == current_user.id,
         )
     )
     if not row:
@@ -499,9 +316,8 @@ def create_recipe(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    owner_id = current_user.data_owner_id
     recipe = Recipe(
-        user_id=owner_id, name=payload.name.strip(), description=payload.description.strip()
+        user_id=current_user.id, name=payload.name.strip(), description=payload.description.strip()
     )
     db.add(recipe)
     db.commit()
@@ -511,9 +327,8 @@ def create_recipe(
 
 @app.get("/recipes", response_model=list[RecipeOut])
 def list_recipes(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    owner_id = current_user.data_owner_id
     return list(
-        db.scalars(select(Recipe).where(Recipe.user_id == owner_id).order_by(Recipe.created_at.desc()))
+        db.scalars(select(Recipe).where(Recipe.user_id == current_user.id).order_by(Recipe.created_at.desc()))
     )
 
 
@@ -523,13 +338,12 @@ def create_ingredient(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    owner_id = current_user.data_owner_id
     base_qty, base_unit = convert_to_base(payload.package_size, payload.package_unit)
     if base_qty <= 0:
         raise HTTPException(status_code=400, detail="package_size must be > 0")
     cpu = (payload.package_price + payload.shipping_fee) / base_qty
     row = Ingredient(
-        user_id=owner_id,
+        user_id=current_user.id,
         name=payload.name.strip(),
         supplier=payload.supplier.strip(),
         package_price=payload.package_price,
@@ -548,8 +362,7 @@ def create_ingredient(
 
 @app.get("/ingredients", response_model=list[IngredientOut])
 def list_ingredients(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    owner_id = current_user.data_owner_id
-    rows = db.scalars(select(Ingredient).where(Ingredient.user_id == owner_id)).all()
+    rows = db.scalars(select(Ingredient).where(Ingredient.user_id == current_user.id)).all()
     return [_ingredient_out(x) for x in rows]
 
 
@@ -560,12 +373,11 @@ def add_recipe_ingredient(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    owner_id = current_user.data_owner_id
-    recipe = db.scalar(select(Recipe).where(Recipe.id == recipe_id, Recipe.user_id == owner_id))
+    recipe = db.scalar(select(Recipe).where(Recipe.id == recipe_id, Recipe.user_id == current_user.id))
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
     ing = db.scalar(
-        select(Ingredient).where(Ingredient.id == payload.ingredient_id, Ingredient.user_id == owner_id)
+        select(Ingredient).where(Ingredient.id == payload.ingredient_id, Ingredient.user_id == current_user.id)
     )
     if not ing:
         raise HTTPException(status_code=404, detail="Ingredient not found")
@@ -592,9 +404,8 @@ def create_opex(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    owner_id = current_user.data_owner_id
     row = Opex(
-        user_id=owner_id, name=payload.name.strip(), amount=payload.amount, type=payload.type
+        user_id=current_user.id, name=payload.name.strip(), amount=payload.amount, type=payload.type
     )
     db.add(row)
     db.commit()
@@ -604,8 +415,7 @@ def create_opex(
 
 @app.get("/opex", response_model=list[OpexOut])
 def list_opex(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    owner_id = current_user.data_owner_id
-    return list(db.scalars(select(Opex).where(Opex.user_id == owner_id)))
+    return list(db.scalars(select(Opex).where(Opex.user_id == current_user.id)))
 
 
 @app.post("/other-costs", response_model=OtherCostOut)
@@ -614,13 +424,12 @@ def create_other_cost(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    owner_id = current_user.data_owner_id
     base_qty, base_unit = convert_to_base(payload.package_size, payload.package_unit)
     if base_qty <= 0:
         raise HTTPException(status_code=400, detail="package_size must be > 0")
     cpu = (payload.package_price + payload.shipping_fee) / base_qty
     row = OtherCost(
-        user_id=owner_id,
+        user_id=current_user.id,
         name=payload.name.strip(),
         supplier=payload.supplier.strip(),
         package_price=payload.package_price,
@@ -639,8 +448,7 @@ def create_other_cost(
 
 @app.get("/other-costs", response_model=list[OtherCostOut])
 def list_other_costs(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    owner_id = current_user.data_owner_id
-    rows = db.scalars(select(OtherCost).where(OtherCost.user_id == owner_id)).all()
+    rows = db.scalars(select(OtherCost).where(OtherCost.user_id == current_user.id)).all()
     return [_other_out(x) for x in rows]
 
 
@@ -651,12 +459,11 @@ def add_recipe_other_cost(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    owner_id = current_user.data_owner_id
-    recipe = db.scalar(select(Recipe).where(Recipe.id == recipe_id, Recipe.user_id == owner_id))
+    recipe = db.scalar(select(Recipe).where(Recipe.id == recipe_id, Recipe.user_id == current_user.id))
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
     other = db.scalar(
-        select(OtherCost).where(OtherCost.id == payload.other_cost_id, OtherCost.user_id == owner_id)
+        select(OtherCost).where(OtherCost.id == payload.other_cost_id, OtherCost.user_id == current_user.id)
     )
     if not other:
         raise HTTPException(status_code=404, detail="Other cost not found")
@@ -679,10 +486,9 @@ def add_recipe_other_cost(
 def get_recipe_details(
     recipe_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
-    owner_id = current_user.data_owner_id
     recipe = db.scalar(
         select(Recipe)
-        .where(Recipe.id == recipe_id, Recipe.user_id == owner_id)
+        .where(Recipe.id == recipe_id, Recipe.user_id == current_user.id)
         .options(
             joinedload(Recipe.recipe_ingredients).joinedload(RecipeIngredient.ingredient),
             joinedload(Recipe.recipe_other_costs).joinedload(RecipeOtherCost.other_cost),
@@ -728,8 +534,8 @@ def get_recipe_details(
         )
 
     total_cogs = total_ingredient_cost + total_other_cost
-    recipe_count = db.scalar(select(func.count(Recipe.id)).where(Recipe.user_id == owner_id)) or 1
-    total_opex = db.scalar(select(func.coalesce(func.sum(Opex.amount), 0)).where(Opex.user_id == owner_id)) or 0
+    recipe_count = db.scalar(select(func.count(Recipe.id)).where(Recipe.user_id == current_user.id)) or 1
+    total_opex = db.scalar(select(func.coalesce(func.sum(Opex.amount), 0)).where(Opex.user_id == current_user.id)) or 0
     allocated_opex = float(total_opex) / float(recipe_count)
     total_cost_per_recipe = total_cogs + allocated_opex
     margin_percent = 25.0
