@@ -21,5 +21,5 @@ COPY backend/ .
 # Expose the port Render expects
 EXPOSE 10000
 
-# Start the application using uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000"]
+# Start the application using uvicorn (respecting Render's dynamic $PORT env var)
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000}"]
