@@ -3,12 +3,14 @@
 	import RecipeCard from '$lib/components/recipes/RecipeCard.svelte';
 	import RecipeCostingDrawer from '$lib/components/recipes/RecipeCostingDrawer.svelte';
 	import RecipeDetailsModal from '$lib/components/recipes/RecipeDetailsModal.svelte';
+	import RecipeArchiveModal from '$lib/components/recipes/RecipeArchiveModal.svelte';
 	import { addRecipe, recipeStore } from '$lib/state/recipes.svelte';
 
 	let search = $state('');
 	let detailRecipeId = $state<string | null>(null);
 	let costingRecipeId = $state<string | null>(null);
 	let quickAddOpen = $state(false);
+	let archiveOpen = $state(false);
 
 	const filtered = $derived(
 		recipeStore.recipes.filter((r) => r.name.toLowerCase().includes(search.toLowerCase().trim()))
@@ -87,6 +89,21 @@
 						class="w-full min-w-[min(100%,280px)] rounded-2xl border-none bg-zinc-800/50 py-3 pl-10 pr-4 text-white placeholder-zinc-500 ring-1 ring-white/10 transition-all focus:bg-zinc-800 focus:ring-2 focus:ring-orange-500 sm:max-w-xs"
 					/>
 				</div>
+				<!-- Archive button -->
+				<button
+					id="open-recipe-archive-btn"
+					type="button"
+					class="relative flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-zinc-700/60 px-5 py-3 text-sm font-semibold text-zinc-200 ring-1 ring-white/10 transition-all hover:bg-zinc-600 hover:-translate-y-0.5"
+					onclick={() => (archiveOpen = true)}
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8l1 12a2 2 0 002 2h8a2 2 0 002-2L19 8"/></svg>
+					Archive
+					{#if recipeStore.deletedRecipes.length > 0}
+						<span class="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white">
+							{recipeStore.deletedRecipes.length > 99 ? '99+' : recipeStore.deletedRecipes.length}
+						</span>
+					{/if}
+				</button>
 				<button
 					type="button"
 					class="flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-orange-600 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-orange-900/25 transition-all hover:bg-orange-500 hover:-translate-y-0.5"
@@ -96,6 +113,7 @@
 					Add recipe
 				</button>
 			</div>
+
 		</div>
 	</div>
 
@@ -131,3 +149,5 @@
 <RecipeCostingDrawer recipe={costingRecipe} open={costingRecipeId !== null} onClose={closeCosting} />
 
 <RecipeDetailsModal recipe={detailRecipe} open={detailRecipeId !== null} onClose={closeDetail} />
+
+<RecipeArchiveModal open={archiveOpen} onClose={() => (archiveOpen = false)} />

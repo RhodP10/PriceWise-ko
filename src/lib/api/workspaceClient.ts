@@ -5,6 +5,7 @@ import { API_BASE } from '$lib/api/apiBase';
 /** Payload shape stored in `user_workspaces.payload` (camelCase JSON). */
 export type WorkspaceClientPayload = {
 	recipes: RecipeDTO[];
+	deletedRecipes: RecipeDTO[];
 	ingredients: IngredientMasterDTO[];
 	others: OtherItemMasterDTO[];
 	opex: OpexLineDTO[];

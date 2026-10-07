@@ -11,7 +11,8 @@ import { otherCatalog } from '$lib/state/otherCatalog.svelte';
 import { convertQuantity } from '$lib/utils/unitConvert';
 
 export const recipeStore = $state({
-	recipes: [] as RecipeDTO[]
+	recipes: [] as RecipeDTO[],
+	deletedRecipes: [] as RecipeDTO[]
 });
 
 function newId(prefix: string): string {
@@ -46,8 +47,28 @@ export function updateRecipePricing(recipeId: string, pricing: RecipePricingDTO)
 	recipeStore.recipes = recipeStore.recipes.map((r) => (r.id === recipeId ? { ...r, pricing } : r));
 }
 
+/** Soft-delete: moves recipe to deletedRecipes archive with a timestamp. */
 export function deleteRecipe(recipeId: string): void {
+	const recipe = recipeStore.recipes.find((r) => r.id === recipeId);
+	if (!recipe) return;
+	const archived: RecipeDTO = { ...recipe, deletedAt: new Date().toISOString() };
 	recipeStore.recipes = recipeStore.recipes.filter((r) => r.id !== recipeId);
+	recipeStore.deletedRecipes = [archived, ...recipeStore.deletedRecipes];
+}
+
+/** Restore an archived recipe back to the active list. */
+export function restoreRecipe(recipeId: string): void {
+	const recipe = recipeStore.deletedRecipes.find((r) => r.id === recipeId);
+	if (!recipe) return;
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	const { deletedAt: _removed, ...restored } = recipe;
+	recipeStore.deletedRecipes = recipeStore.deletedRecipes.filter((r) => r.id !== recipeId);
+	recipeStore.recipes = [restored as RecipeDTO, ...recipeStore.recipes];
+}
+
+/** Permanently removes a recipe from the archive — cannot be undone. */
+export function permanentlyDeleteRecipe(recipeId: string): void {
+	recipeStore.deletedRecipes = recipeStore.deletedRecipes.filter((r) => r.id !== recipeId);
 }
 
 export function addRecipeIngredientLine(
@@ -206,10 +227,12 @@ export function deleteRecipeOtherLine(recipeId: string, lineId: string): void {
 	);
 }
 
-export function replaceRecipesFromApi(next: RecipeDTO[]): void {
+export function replaceRecipesFromApi(next: RecipeDTO[], deleted: RecipeDTO[] = []): void {
 	recipeStore.recipes = structuredClone(next);
+	recipeStore.deletedRecipes = structuredClone(deleted);
 }
 
 export function resetRecipes(): void {
 	recipeStore.recipes = [];
+	recipeStore.deletedRecipes = [];
 }

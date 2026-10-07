@@ -115,6 +115,8 @@ export interface RecipeDTO {
 	pricing: RecipePricingDTO;
 	ingredientLines: RecipeIngredientLineDTO[];
 	otherLines: RecipeOtherLineDTO[];
+	/** ISO timestamp set when recipe is soft-deleted (archived). Absent on active recipes. */
+	deletedAt?: string;
 }
 
 export interface OpexLineDTO {

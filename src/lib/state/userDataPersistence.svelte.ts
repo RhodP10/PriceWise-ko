@@ -34,6 +34,7 @@ export function isWorkspaceSaveEnabled(): boolean {
 export function serializeWorkspacePayload(): WorkspaceClientPayload {
 	return {
 		recipes: cloneJson(recipeStore.recipes),
+		deletedRecipes: cloneJson(recipeStore.deletedRecipes),
 		ingredients: cloneJson(ingredientCatalog.items),
 		others: cloneJson(otherCatalog.items),
 		opex: cloneJson(opexStore.lines),
@@ -59,7 +60,10 @@ export function applyEmptyWorkspace(): void {
 
 export function applyWorkspacePayload(data: Partial<WorkspaceClientPayload> | null | undefined): void {
 	const d = data ?? {};
-	replaceRecipesFromApi(Array.isArray(d.recipes) ? cloneJson(d.recipes) : []);
+	replaceRecipesFromApi(
+		Array.isArray(d.recipes) ? cloneJson(d.recipes) : [],
+		Array.isArray(d.deletedRecipes) ? cloneJson(d.deletedRecipes) : []
+	);
 	replaceIngredientCatalogItems(Array.isArray(d.ingredients) ? cloneJson(d.ingredients) : []);
 	replaceOtherCatalogItems(Array.isArray(d.others) ? cloneJson(d.others) : []);
 	replaceOpexLines(Array.isArray(d.opex) ? cloneJson(d.opex) : []);
